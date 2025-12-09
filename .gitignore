@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Data (tracked by DVC)
+data/*.csv
+data/*.parquet
+models/*.pkl
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
+
+# Secrets
+*.json
+gcp-key.json
+
+# Temporary
+*.tmp
+.pytest_cache/
