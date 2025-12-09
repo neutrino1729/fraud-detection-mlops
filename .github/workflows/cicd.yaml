@@ -1,0 +1,100 @@
+name: MLOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-train-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Authenticate to GCP
+      env:
+        GCP_CREDENTIALS_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
+      run: |
+        echo "$GCP_CREDENTIALS_B64" | base64 -d > gcp-key.json
+        echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
+    
+    - name: Install gcloud CLI
+      uses: google-github-actions/setup-gcloud@v2
+    
+    - name: Configure DVC and Pull Data
+      run: |
+        gcloud auth activate-service-account --key-file=gcp-key.json
+        gcloud config set project theta-index-472515-d8
+        dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
+        dvc pull
+    
+    - name: Train Model
+      run: |
+        python src/train.py
+    
+    - name: Run Tests
+      run: |
+        # Test model loads
+        python -c "import joblib; m = joblib.load('models/model.pkl'); print('✅ Model loads')"
+        
+        # Test metrics exist
+        python -c "import json; m = json.load(open('models/metrics.json')); print(f'✅ F1: {m[\"f1_score\"]:.4f}')"
+    
+    - name: Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker us-central1-docker.pkg.dev
+    
+    - name: Build Docker Image
+      run: |
+        docker build -f infra/Dockerfile -t fraud-api:${{ github.sha }} .
+    
+    - name: Tag and Push Docker Image
+      run: |
+        docker tag fraud-api:${{ github.sha }} \
+          us-central1-docker.pkg.dev/theta-index-472515-d8/fraud-repo/fraud-api:${{ github.sha }}
+        
+        docker tag fraud-api:${{ github.sha }} \
+          us-central1-docker.pkg.dev/theta-index-472515-d8/fraud-repo/fraud-api:latest
+        
+        docker push us-central1-docker.pkg.dev/theta-index-472515-d8/fraud-repo/fraud-api:${{ github.sha }}
+        docker push us-central1-docker.pkg.dev/theta-index-472515-d8/fraud-repo/fraud-api:latest
+    
+    - name: Deploy to GKE
+      run: |
+        gcloud container clusters get-credentials fraud-cluster \
+          --zone=us-central1-a \
+          --project=theta-index-472515-d8
+        
+        # Update deployment with new image
+        kubectl set image deployment/fraud-detection \
+          api=us-central1-docker.pkg.dev/theta-index-472515-d8/fraud-repo/fraud-api:${{ github.sha }}
+        
+        # Wait for rollout
+        kubectl rollout status deployment/fraud-detection --timeout=5m
+    
+    - name: Verify Deployment
+      run: |
+        kubectl get pods -l app=fraud-detection
+        kubectl get service fraud-detection-svc
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -f gcp-key.json
