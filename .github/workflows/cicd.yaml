@@ -35,9 +35,13 @@ jobs:
         echo "$GCP_CREDENTIALS_B64" | base64 -d > gcp-key.json
         echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
     
+    # --- FIX START: Added install_components ---
     - name: Install gcloud CLI
       uses: google-github-actions/setup-gcloud@v2
-    
+      with:
+        install_components: 'gke-gcloud-auth-plugin'
+    # --- FIX END ---
+
     - name: Configure DVC and Pull Data
       run: |
         gcloud auth activate-service-account --key-file=gcp-key.json
