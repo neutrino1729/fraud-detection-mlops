@@ -1,0 +1,13 @@
+.git
+.gitignore
+.dvc
+__pycache__
+*.py[cod]
+.venv
+venv/
+data/
+tests/
+.github/
+README.md
+*.md
+.DS_Store
